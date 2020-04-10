@@ -3,7 +3,6 @@ require "vector"
 local TICK_RATE = 1/60
 local MAX_FRAME_SKIP = 25
 
-local TIMESTEP = 1/60
 local GRID_SCALE_METER = 100
 local SCALE_PIXEL_PER_METER = 1
 local BULLET_MUZZLE_VELOCITY = 825
@@ -71,7 +70,9 @@ function love.draw()
 
     if dragStart and dragEnd then
         local directionX, directionY = normalize(dragEnd[1] - dragStart[1], dragEnd[2] - dragStart[2])
-        drawTrajectoryHeun(dragStart[1], dragStart[2], directionX * BULLET_MUZZLE_VELOCITY, directionY * BULLET_MUZZLE_VELOCITY, TIMESTEP)
+        drawTrajectoryEuler(dragStart[1], dragStart[2], directionX * BULLET_MUZZLE_VELOCITY, directionY * BULLET_MUZZLE_VELOCITY, TICK_RATE)
+        drawTrajectoryBackEuler(dragStart[1], dragStart[2], directionX * BULLET_MUZZLE_VELOCITY, directionY * BULLET_MUZZLE_VELOCITY, TICK_RATE)
+        drawTrajectoryHeun(dragStart[1], dragStart[2], directionX * BULLET_MUZZLE_VELOCITY, directionY * BULLET_MUZZLE_VELOCITY, TICK_RATE)
     end
 
     if bullet ~= nil then
@@ -197,9 +198,10 @@ end
 function getNextBulletPositionAndVelocityEuler(currentPositionX, currentPositionY, currentVelocityX, currentVelocityY, time)
     local newPositionX = currentPositionX + currentVelocityX * time
     local newPositionY = currentPositionY + currentVelocityY * time
-
-    local newVelocityX = currentVelocityX
-    local newVelocityY = currentVelocityY + GRAVITY_METER_PER_SEC * time
+    
+    local dragX, dragY = calculateDrag(currentVelocityX, currentVelocityY)
+    local newVelocityX = currentVelocityX + dragX * time
+    local newVelocityY = currentVelocityY + GRAVITY_METER_PER_SEC * time + dragY * time
 
     return {
         position = { newPositionX, newPositionY },
@@ -208,8 +210,9 @@ function getNextBulletPositionAndVelocityEuler(currentPositionX, currentPosition
 end
 
 function getNextBulletPositionAndVelocityBackEuler(currentPositionX, currentPositionY, currentVelocityX, currentVelocityY, time)
-    local newVelocityX = currentVelocityX
-    local newVelocityY = currentVelocityY + GRAVITY_METER_PER_SEC
+    local dragX, dragY = calculateDrag(currentVelocityX, currentVelocityY)
+    local newVelocityX = currentVelocityX + dragX * time
+    local newVelocityY = currentVelocityY + GRAVITY_METER_PER_SEC * time + dragY * time
 
     local newPositionX = currentPositionX + newVelocityX * time
     local newPositionY = currentPositionY + newVelocityY * time
@@ -221,26 +224,20 @@ function getNextBulletPositionAndVelocityBackEuler(currentPositionX, currentPosi
 end
 
 function getNextBulletPositionAndVelocityHeun(currentPositionX, currentPositionY, currentVelocityX, currentVelocityY, time)
-    local accelerationFactorEulerX, accelerationFactorEulerY = 0, GRAVITY_METER_PER_SEC
-    local accelerationFactorHeunX, accelerationFactorHeunY = 0, GRAVITY_METER_PER_SEC
-
-    local dragX, dragY = calculateDrag(currentVelocityX, currentVelocityY)
-    accelerationFactorEulerX = accelerationFactorEulerX + dragX
-    accelerationFactorEulerY = accelerationFactorEulerY + dragY
-
+    local dragEulerX, dragEulerY = calculateDrag(currentVelocityX, currentVelocityY)
+    local accelerationFactorEulerX, accelerationFactorEulerY = dragEulerX, GRAVITY_METER_PER_SEC + dragEulerY
+    
     local eulsVelocityX = currentVelocityX + accelerationFactorEulerX * time
     local eulsVelocityY = currentVelocityY + accelerationFactorEulerY * time
     
     local newPositionX = currentPositionX + (currentVelocityX + eulsVelocityX) * time * 0.5
     local newPositionY = currentPositionY + (currentVelocityY + eulsVelocityY) * time * 0.5
-
-    local dragX, dragY = calculateDrag(eulsVelocityX, eulsVelocityY)
-    accelerationFactorHeunX = accelerationFactorHeunX + dragX
-    accelerationFactorHeunY = accelerationFactorHeunY + dragY
+    
+    local dragHeunX, dragHeunY = calculateDrag(eulsVelocityX, eulsVelocityY)
+    local accelerationFactorHeunX, accelerationFactorHeunY = dragHeunX, GRAVITY_METER_PER_SEC + dragHeunY
 
     local newVelocityX = currentVelocityX + (accelerationFactorEulerX + accelerationFactorHeunX) * time * 0.5
     local newVelocityY = currentVelocityY + (accelerationFactorEulerY + accelerationFactorHeunY) * time * 0.5
-
 
     return {
         position = { newPositionX, newPositionY },
@@ -249,6 +246,7 @@ function getNextBulletPositionAndVelocityHeun(currentPositionX, currentPositionY
 end
 
 function calculateDrag(velocityX, velocityY)
+    -- local dragCoef = 0.0
     local dragCoef = 0.0055
     local normalizedX, normalizedY = normalize(velocityX, velocityY)
     local squareMagnitude = velocityX * velocityX + velocityY * velocityY
